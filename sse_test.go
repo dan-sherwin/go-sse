@@ -39,7 +39,7 @@ func startSession(t *testing.T, sessionID any, lastEventIDHeader string) (cancel
 
 	// Build request with cancellable context
 	ctx, cancel := context.WithCancel(context.Background())
-	req := httptest.NewRequest(http.MethodGet, "/sse", nil).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodGet, "/sse?uid=test-user", nil).WithContext(ctx)
 	if lastEventIDHeader != "" {
 		req.Header.Set("Last-Event-ID", lastEventIDHeader)
 	}

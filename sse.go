@@ -25,6 +25,7 @@ type (
 		event     chan *sseEvent
 		shutDown  chan bool
 		sessionID any
+		uid       string
 	}
 )
 
@@ -36,10 +37,56 @@ var (
 	sessionsMutex = &sync.RWMutex{}
 )
 
-func sendNewEvent(eventType string, data any, sessionIds []any) error {
-	dataB, err := json.Marshal(data)
+func sendNewEventViaUids(eventType string, data any, uids []string) error {
+	sessionIds := []any{}
+	sessionsMutex.RLock()
+	for _, sess := range sseSessions {
+		if slices.Contains(uids, sess.uid) && !slices.Contains(sessionIds, sess.sessionID) {
+			sessionIds = append(sessionIds, sess.sessionID)
+		}
+	}
+	sessionsMutex.RUnlock()
+	event, err := createEvent(eventType, data, sessionIds)
 	if err != nil {
 		return err
+	}
+	sessionsMutex.RLock()
+	sessions := append([]*SSESession(nil), sseSessions...)
+	sessionsMutex.RUnlock()
+	for _, sess := range sessions {
+		if uids != nil {
+			if !slices.Contains(uids, sess.uid) {
+				continue
+			}
+		}
+		sess.event <- event
+	}
+	return nil
+}
+
+func sendNewEvent(eventType string, data any, sessionIds []any) error {
+	event, err := createEvent(eventType, data, sessionIds)
+	if err != nil {
+		return err
+	}
+	sessionsMutex.RLock()
+	sessions := append([]*SSESession(nil), sseSessions...)
+	sessionsMutex.RUnlock()
+	for _, sess := range sessions {
+		if sessionIds != nil {
+			if !slices.Contains(sessionIds, sess.sessionID) {
+				continue
+			}
+		}
+		sess.event <- event
+	}
+	return nil
+}
+
+func createEvent(eventType string, data any, sessionIds []any) (*sseEvent, error) {
+	dataB, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
 	}
 	dataStr := string(dataB)
 	eventMutex.Lock()
@@ -53,19 +100,7 @@ func sendNewEvent(eventType string, data any, sessionIds []any) error {
 	}
 	events[lastEventID] = event
 	eventMutex.Unlock()
-	// Snapshot sessions under read lock to avoid races while iterating
-	sessionsMutex.RLock()
-	sessions := append([]*SSESession(nil), sseSessions...)
-	sessionsMutex.RUnlock()
-	for _, sess := range sessions {
-		if sessionIds != nil {
-			if !slices.Contains(sessionIds, sess.sessionID) {
-				continue
-			}
-		}
-		sess.event <- event
-	}
-	return nil
+	return event, nil
 }
 
 func ShutdownBySessionId(sessionId any) {
@@ -82,6 +117,18 @@ func ShutdownBySessionIds(sessionIds []any) {
 	}
 }
 
+func BroadcastEventExceptUids(eventType string, data any, exceptUids []string) error {
+	uids := []string{}
+	sessionsMutex.RLock()
+	for _, sess := range sseSessions {
+		if !slices.Contains(exceptUids, sess.uid) {
+			uids = append(uids, sess.uid)
+		}
+	}
+	sessionsMutex.RUnlock()
+	return sendNewEventViaUids(eventType, data, uids)
+}
+
 func BroadcastEvent(eventType string, data any) error {
 	return sendNewEvent(eventType, data, nil)
 }
@@ -94,7 +141,39 @@ func SendSessionsEvent(eventType string, data any, sessionIds []any) error {
 	return sendNewEvent(eventType, data, sessionIds)
 }
 
+// HasActiveSessionForUid reports whether there is at least one active SSE session for the given uid.
+func HasActiveSessionForUid(uid string) bool {
+	if uid == "" {
+		return false
+	}
+	sessionsMutex.RLock()
+	defer sessionsMutex.RUnlock()
+	for _, sess := range sseSessions {
+		if sess.uid == uid {
+			return true
+		}
+	}
+	return false
+}
+
+// HasActiveSessionsForSessionId reports whether there is at least one active SSE session for the given sessionId.
+func HasActiveSessionsForSessionId(sessionId any) bool {
+	sessionsMutex.RLock()
+	defer sessionsMutex.RUnlock()
+	for _, sess := range sseSessions {
+		if sess.sessionID == sessionId {
+			return true
+		}
+	}
+	return false
+}
+
 func NewSSESession(c *gin.Context, sessionId any) {
+	uid := c.Query("uid")
+	if uid == "" {
+		rest_response.RestErrorRespond(c, rest_response.BadRequest, "Missing uid query parameter")
+		return
+	}
 	eventsToSend := []*sseEvent{}
 	lastIDstr := c.GetHeader("Last-Event-ID")
 	if lastIDstr != "" {
@@ -134,6 +213,7 @@ func NewSSESession(c *gin.Context, sessionId any) {
 		event:     make(chan *sseEvent, len(eventsToSend)+1000),
 		shutDown:  make(chan bool, 1),
 		sessionID: sessionId,
+		uid:       uid,
 	}
 	for _, event := range eventsToSend {
 		session.event <- event

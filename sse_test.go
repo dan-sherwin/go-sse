@@ -60,7 +60,7 @@ func resetState() {
 		default:
 		}
 	}
-	sseSessions = []*Session{}
+	sseSessions = []*SSESession{}
 	sessionsMutex.Unlock()
 
 	eventMutex.Lock()

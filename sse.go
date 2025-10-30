@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dan-sherwin/go-rest-api-server/rest_response"
+	"github.com/dan-sherwin/go-rest-api-server/restresponse"
 	"github.com/gin-gonic/gin"
 )
 
@@ -171,7 +171,7 @@ func HasActiveSessionsForSessionId(sessionId any) bool {
 func NewSSESession(c *gin.Context, sessionId any) {
 	uid := c.Query("uid")
 	if uid == "" {
-		rest_response.RestErrorRespond(c, rest_response.BadRequest, "Missing uid query parameter")
+		restresponse.RestErrorRespond(c, restresponse.BadRequest, "Missing uid query parameter")
 		return
 	}
 	eventsToSend := []*sseEvent{}
@@ -197,7 +197,7 @@ func NewSSESession(c *gin.Context, sessionId any) {
 	}
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		rest_response.RestErrorRespond(c, rest_response.Internal, "SSE unsupported")
+		restresponse.RestErrorRespond(c, restresponse.Internal, "SSE unsupported")
 		return
 	}
 	c.Header("Content-Type", "text/event-stream")
@@ -223,7 +223,7 @@ func NewSSESession(c *gin.Context, sessionId any) {
 	sessionsMutex.Unlock()
 	err := session.Start(c)
 	if err != nil {
-		rest_response.RestErrorRespond(c, rest_response.Internal, "SSE error")
+		restresponse.RestErrorRespond(c, restresponse.Internal, "SSE error")
 	}
 }
 

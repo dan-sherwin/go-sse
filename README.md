@@ -1,5 +1,7 @@
 # Go SSE
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/dan-sherwin/go-sse.svg)](https://pkg.go.dev/github.com/dan-sherwin/go-sse) [![Go Report Card](https://goreportcard.com/badge/github.com/dan-sherwin/go-sse)](https://goreportcard.com/report/github.com/dan-sherwin/go-sse) [![CI](https://github.com/dan-sherwin/go-sse/actions/workflows/ci.yml/badge.svg)](https://github.com/dan-sherwin/go-sse/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![GitHub tag](https://img.shields.io/github/v/tag/dan-sherwin/go-sse?label=version)](https://github.com/dan-sherwin/go-sse/releases)
+
 A lightweight, production-ready Server‑Sent Events (SSE) helper for Go with Gin. It provides:
 
 - Broadcast and targeted events (to specific session IDs)

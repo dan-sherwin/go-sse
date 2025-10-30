@@ -24,9 +24,9 @@ type (
 		sent       time.Time `json:"-"`
 		sessionIDs []any     `json:"-"`
 	}
-	// SSESession represents a single server-sent events stream bound to a logical sessionID and uid.
-	// Use NewSSESession to construct and Start to run the stream lifecycle.
-	SSESession struct {
+	// Session represents a single server-sent events stream bound to a logical sessionID and uid.
+	// Use NewSession to construct and Start to run the stream lifecycle.
+	Session struct {
 		event     chan *sseEvent
 		shutDown  chan bool
 		sessionID any
@@ -35,7 +35,7 @@ type (
 )
 
 var (
-	sseSessions   = []*SSESession{}
+	sseSessions   = []*Session{}
 	events        = map[int]*sseEvent{}
 	lastEventID   = 0
 	eventMutex    = &sync.Mutex{}
@@ -56,7 +56,7 @@ func sendNewEventViaUids(eventType string, data any, uids []string) error {
 		return err
 	}
 	sessionsMutex.RLock()
-	sessions := append([]*SSESession(nil), sseSessions...)
+	sessions := append([]*Session(nil), sseSessions...)
 	sessionsMutex.RUnlock()
 	for _, sess := range sessions {
 		if uids != nil {
@@ -106,7 +106,7 @@ func ShutdownByUID(uid string) {
 // ShutdownByUIDs closes all sessions whose uid is in the provided list.
 func ShutdownByUIDs(uids []string) {
 	sessionsMutex.RLock()
-	sessions := append([]*SSESession(nil), sseSessions...)
+	sessions := append([]*Session(nil), sseSessions...)
 	sessionsMutex.RUnlock()
 	for _, sess := range sessions {
 		if slices.Contains(uids, sess.uid) {
@@ -124,7 +124,7 @@ func sendNewEvent(eventType string, data any, sessionIDs []any) error {
 		return err
 	}
 	sessionsMutex.RLock()
-	sessions := append([]*SSESession(nil), sseSessions...)
+	sessions := append([]*Session(nil), sseSessions...)
 	sessionsMutex.RUnlock()
 	for _, sess := range sessions {
 		if sessionIDs != nil {
@@ -229,30 +229,30 @@ func HasActiveSessionsForSessionID(sessionID any) bool {
 	return false
 }
 
-// NewSSESession upgrades the HTTP connection to an SSE stream bound to the provided sessionID.
+// NewSession upgrades the HTTP connection to an SSE stream bound to the provided sessionID.
 // It mirrors CORS headers, emits an initial retry hint, replays missed events based on Last-Event-ID,
 // and then starts the session loop until the client disconnects or shutdown is requested.
-func NewSSESession(c *gin.Context, sessionID any) {
+func NewSession(c *gin.Context, sessionID any) {
 	uid := c.Query("uid")
 	if uid == "" {
 		restresponse.RestErrorRespond(c, restresponse.BadRequest, "Missing uid query parameter")
 		return
 	}
-	newSSESessionInternal(c, sessionID, uid)
+	newSessionInternal(c, sessionID, uid)
 }
 
-// NewSSESessionWithUID starts an SSE session using a server-supplied uid instead of relying on a query parameter.
+// NewSessionWithUID starts an SSE session using a server-supplied uid instead of relying on a query parameter.
 // This is useful when the server derives identity/role from authentication context and wants to avoid trusting the client to provide uid.
-func NewSSESessionWithUID(c *gin.Context, sessionID any, uid string) {
+func NewSessionWithUID(c *gin.Context, sessionID any, uid string) {
 	if uid == "" {
 		restresponse.RestErrorRespond(c, restresponse.BadRequest, "Missing uid value")
 		return
 	}
-	newSSESessionInternal(c, sessionID, uid)
+	newSessionInternal(c, sessionID, uid)
 }
 
-// newSSESessionInternal contains the core session start logic shared by both NewSSESession and NewSSESessionWithUID.
-func newSSESessionInternal(c *gin.Context, sessionID any, uid string) {
+// newSessionInternal contains the core session start logic shared by both NewSession and NewSessionWithUID.
+func newSessionInternal(c *gin.Context, sessionID any, uid string) {
 	eventsToSend := []*sseEvent{}
 	lastIDstr := c.GetHeader("Last-Event-ID")
 	if lastIDstr != "" {
@@ -291,7 +291,7 @@ func newSSESessionInternal(c *gin.Context, sessionID any, uid string) {
 		return
 	}
 	flusher.Flush()
-	session := &SSESession{
+	session := &Session{
 		event:     make(chan *sseEvent, len(eventsToSend)+1000),
 		shutDown:  make(chan bool, 1),
 		sessionID: sessionID,
@@ -311,7 +311,7 @@ func newSSESessionInternal(c *gin.Context, sessionID any, uid string) {
 
 // Start begins the SSE session loop: sending heartbeats and queued events until
 // the client disconnects or the session is shut down.
-func (s *SSESession) Start(c *gin.Context) error {
+func (s *Session) Start(c *gin.Context) error {
 	// Heartbeat ticker for keeping the connection alive
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()

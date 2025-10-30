@@ -60,7 +60,7 @@ func resetState() {
 		default:
 		}
 	}
-	sseSessions = []*SSESession{}
+	sseSessions = []*Session{}
 	sessionsMutex.Unlock()
 
 	eventMutex.Lock()
@@ -89,7 +89,7 @@ func startSession(t *testing.T, sessionID any, lastEventIDHeader string) (cancel
 
 	done = make(chan struct{})
 	go func() {
-		NewSSESession(c, sessionID)
+		NewSession(c, sessionID)
 		close(done)
 	}()
 

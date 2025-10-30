@@ -6,6 +6,8 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ## [Unreleased]
 
+## [v0.1.4] - 2025-10-30
+
 ### Security
 - Bump minimum Go version to 1.25.3 and require toolchain `go1.25.3` to address standard library vulnerabilities (GO-2025-4007, GO-2025-4008, GO-2025-4010, GO-2025-4011, GO-2025-4013).
 
@@ -31,5 +33,6 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 
 ---
 
-[Unreleased]: https://github.com/dan-sherwin/go-sse/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/dan-sherwin/go-sse/compare/v0.1.4...HEAD
+[v0.1.4]: https://github.com/dan-sherwin/go-sse/compare/v0.1.3...v0.1.4
 [v0.1.3]: https://github.com/dan-sherwin/go-sse/releases/tag/v0.1.3

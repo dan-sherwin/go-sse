@@ -1,6 +1,6 @@
 module github.com/dan-sherwin/go-sse
 
-go 1.25.1
+go 1.25.3
 
 require (
 	github.com/dan-sherwin/go-rest-api-server v0.4.0

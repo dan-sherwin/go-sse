@@ -1,3 +1,5 @@
+// Package sse provides helpers for Server-Sent Events (SSE) using Gin.
+// It supports broadcasting, targeted events, replay via Last-Event-ID, and graceful shutdown.
 package sse
 
 import (
@@ -21,7 +23,9 @@ type (
 		sent       time.Time `json:"-"`
 		sessionIDs []any     `json:"-"`
 	}
-	SSESession struct {
+	// Session represents a single server-sent events stream bound to a logical sessionID and uid.
+	// Use NewSSESession to construct and Start to run the stream lifecycle.
+	Session struct {
 		event     chan *sseEvent
 		shutDown  chan bool
 		sessionID any
@@ -30,7 +34,7 @@ type (
 )
 
 var (
-	sseSessions   = []*SSESession{}
+	sseSessions   = []*Session{}
 	events        = map[int]*sseEvent{}
 	lastEventID   = 0
 	eventMutex    = &sync.Mutex{}
@@ -38,20 +42,20 @@ var (
 )
 
 func sendNewEventViaUids(eventType string, data any, uids []string) error {
-	sessionIds := []any{}
+	sessionIDs := []any{}
 	sessionsMutex.RLock()
 	for _, sess := range sseSessions {
-		if slices.Contains(uids, sess.uid) && !slices.Contains(sessionIds, sess.sessionID) {
-			sessionIds = append(sessionIds, sess.sessionID)
+		if slices.Contains(uids, sess.uid) && !slices.Contains(sessionIDs, sess.sessionID) {
+			sessionIDs = append(sessionIDs, sess.sessionID)
 		}
 	}
 	sessionsMutex.RUnlock()
-	event, err := createEvent(eventType, data, sessionIds)
+	event, err := createEvent(eventType, data, sessionIDs)
 	if err != nil {
 		return err
 	}
 	sessionsMutex.RLock()
-	sessions := append([]*SSESession(nil), sseSessions...)
+	sessions := append([]*Session(nil), sseSessions...)
 	sessionsMutex.RUnlock()
 	for _, sess := range sessions {
 		if uids != nil {
@@ -64,17 +68,17 @@ func sendNewEventViaUids(eventType string, data any, uids []string) error {
 	return nil
 }
 
-func sendNewEvent(eventType string, data any, sessionIds []any) error {
-	event, err := createEvent(eventType, data, sessionIds)
+func sendNewEvent(eventType string, data any, sessionIDs []any) error {
+	event, err := createEvent(eventType, data, sessionIDs)
 	if err != nil {
 		return err
 	}
 	sessionsMutex.RLock()
-	sessions := append([]*SSESession(nil), sseSessions...)
+	sessions := append([]*Session(nil), sseSessions...)
 	sessionsMutex.RUnlock()
 	for _, sess := range sessions {
-		if sessionIds != nil {
-			if !slices.Contains(sessionIds, sess.sessionID) {
+		if sessionIDs != nil {
+			if !slices.Contains(sessionIDs, sess.sessionID) {
 				continue
 			}
 		}
@@ -83,7 +87,7 @@ func sendNewEvent(eventType string, data any, sessionIds []any) error {
 	return nil
 }
 
-func createEvent(eventType string, data any, sessionIds []any) (*sseEvent, error) {
+func createEvent(eventType string, data any, sessionIDs []any) (*sseEvent, error) {
 	dataB, err := json.Marshal(data)
 	if err != nil {
 		return nil, err
@@ -96,27 +100,31 @@ func createEvent(eventType string, data any, sessionIds []any) (*sseEvent, error
 		Event:      eventType,
 		Data:       dataStr,
 		sent:       time.Now(),
-		sessionIDs: sessionIds,
+		sessionIDs: sessionIDs,
 	}
 	events[lastEventID] = event
 	eventMutex.Unlock()
 	return event, nil
 }
 
-func ShutdownBySessionId(sessionId any) {
-	ShutdownBySessionIds([]any{sessionId})
+// ShutdownBySessionID gracefully closes the SSE stream for a single session.
+func ShutdownBySessionID(sessionID any) {
+	ShutdownBySessionIDs([]any{sessionID})
 }
 
-func ShutdownBySessionIds(sessionIds []any) {
+// ShutdownBySessionIDs gracefully closes the SSE streams for the provided sessionIDs.
+func ShutdownBySessionIDs(sessionIDs []any) {
 	sessionsMutex.RLock()
 	defer sessionsMutex.RUnlock()
 	for _, sess := range sseSessions {
-		if slices.Contains(sessionIds, sess.sessionID) {
+		if slices.Contains(sessionIDs, sess.sessionID) {
 			sess.shutDown <- true
 		}
 	}
 }
 
+// BroadcastEventExceptUids sends an SSE event to all connected sessions except those
+// whose uid is present in exceptUids.
 func BroadcastEventExceptUids(eventType string, data any, exceptUids []string) error {
 	uids := []string{}
 	sessionsMutex.RLock()
@@ -129,20 +137,23 @@ func BroadcastEventExceptUids(eventType string, data any, exceptUids []string) e
 	return sendNewEventViaUids(eventType, data, uids)
 }
 
+// BroadcastEvent sends an SSE event with the given type and JSON-encoded data to all sessions.
 func BroadcastEvent(eventType string, data any) error {
 	return sendNewEvent(eventType, data, nil)
 }
 
-func SendSessionEvent(eventType string, data any, sessionId any) error {
-	return sendNewEvent(eventType, data, []any{sessionId})
+// SendSessionEvent sends an event only to the specified sessionID.
+func SendSessionEvent(eventType string, data any, sessionID any) error {
+	return sendNewEvent(eventType, data, []any{sessionID})
 }
 
-func SendSessionsEvent(eventType string, data any, sessionIds []any) error {
-	return sendNewEvent(eventType, data, sessionIds)
+// SendSessionsEvent sends an event to multiple specific sessionIDs.
+func SendSessionsEvent(eventType string, data any, sessionIDs []any) error {
+	return sendNewEvent(eventType, data, sessionIDs)
 }
 
-// HasActiveSessionForUid reports whether there is at least one active SSE session for the given uid.
-func HasActiveSessionForUid(uid string) bool {
+// HasActiveSessionForUID reports whether there is at least one active SSE session for the given uid.
+func HasActiveSessionForUID(uid string) bool {
 	if uid == "" {
 		return false
 	}
@@ -156,19 +167,22 @@ func HasActiveSessionForUid(uid string) bool {
 	return false
 }
 
-// HasActiveSessionsForSessionId reports whether there is at least one active SSE session for the given sessionId.
-func HasActiveSessionsForSessionId(sessionId any) bool {
+// HasActiveSessionsForSessionID reports whether there is at least one active SSE session for the given sessionId.
+func HasActiveSessionsForSessionID(sessionID any) bool {
 	sessionsMutex.RLock()
 	defer sessionsMutex.RUnlock()
 	for _, sess := range sseSessions {
-		if sess.sessionID == sessionId {
+		if sess.sessionID == sessionID {
 			return true
 		}
 	}
 	return false
 }
 
-func NewSSESession(c *gin.Context, sessionId any) {
+// NewSSESession upgrades the HTTP connection to an SSE stream bound to the provided sessionID.
+// It mirrors CORS headers, emits an initial retry hint, replays missed events based on Last-Event-ID,
+// and then starts the session loop until the client disconnects or shutdown is requested.
+func NewSSESession(c *gin.Context, sessionID any) {
 	uid := c.Query("uid")
 	if uid == "" {
 		restresponse.RestErrorRespond(c, restresponse.BadRequest, "Missing uid query parameter")
@@ -184,7 +198,7 @@ func NewSSESession(c *gin.Context, sessionId any) {
 				for i := lastID + 1; i <= snapshotLastID; i++ {
 					if event, ok := events[i]; ok {
 						if event.sessionIDs != nil {
-							if !slices.Contains(event.sessionIDs, sessionId) {
+							if !slices.Contains(event.sessionIDs, sessionID) {
 								continue
 							}
 						}
@@ -207,12 +221,15 @@ func NewSSESession(c *gin.Context, sessionId any) {
 	c.Header("Access-Control-Allow-Credentials", "true")
 
 	// Tell client to wait 15s before reconnect attempts
-	fmt.Fprintf(c.Writer, "retry: 15000\n\n")
+	if _, err := fmt.Fprintf(c.Writer, "retry: 15000\n\n"); err != nil {
+		// If we cannot write, the connection is likely unusable; abort early.
+		return
+	}
 	flusher.Flush()
-	session := &SSESession{
+	session := &Session{
 		event:     make(chan *sseEvent, len(eventsToSend)+1000),
 		shutDown:  make(chan bool, 1),
-		sessionID: sessionId,
+		sessionID: sessionID,
 		uid:       uid,
 	}
 	for _, event := range eventsToSend {
@@ -227,7 +244,9 @@ func NewSSESession(c *gin.Context, sessionId any) {
 	}
 }
 
-func (s *SSESession) Start(c *gin.Context) error {
+// Start begins the SSE session loop: sending heartbeats and queued events until
+// the client disconnects or the session is shut down.
+func (s *Session) Start(c *gin.Context) error {
 	// Heartbeat ticker for keeping the connection alive
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()

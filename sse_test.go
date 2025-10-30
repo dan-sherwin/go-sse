@@ -1,16 +1,54 @@
 package sse
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
+
+// safeRecorder is a concurrency-safe http.ResponseWriter for streaming tests.
+// It implements http.ResponseWriter and http.Flusher, and allows safe reads of the body.
+type safeRecorder struct {
+	mu   sync.RWMutex
+	head http.Header
+	code int
+	body bytes.Buffer
+}
+
+func newSafeRecorder() *safeRecorder {
+	return &safeRecorder{head: make(http.Header), code: http.StatusOK}
+}
+
+func (r *safeRecorder) Header() http.Header { return r.head }
+
+func (r *safeRecorder) Write(b []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.body.Write(b)
+}
+
+func (r *safeRecorder) WriteHeader(statusCode int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.code = statusCode
+}
+
+// Flush is a no-op; included to satisfy http.Flusher used by the SSE code.
+func (r *safeRecorder) Flush() {}
+
+func (r *safeRecorder) BodyString() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.body.String()
+}
 
 // resetState clears global state; only used in tests.
 func resetState() {
@@ -22,7 +60,7 @@ func resetState() {
 		default:
 		}
 	}
-	sseSessions = []*SSESession{}
+	sseSessions = []*Session{}
 	sessionsMutex.Unlock()
 
 	eventMutex.Lock()
@@ -32,10 +70,10 @@ func resetState() {
 }
 
 // helper to start a session and return its context cancel, recorder and done channel.
-func startSession(t *testing.T, sessionID any, lastEventIDHeader string) (cancel context.CancelFunc, rec *httptest.ResponseRecorder, done chan struct{}) {
+func startSession(t *testing.T, sessionID any, lastEventIDHeader string) (cancel context.CancelFunc, rec *safeRecorder, done chan struct{}) {
 	t.Helper()
 	gin.SetMode(gin.ReleaseMode)
-	rec = httptest.NewRecorder()
+	rec = newSafeRecorder()
 
 	// Build request with cancellable context
 	ctx, cancel := context.WithCancel(context.Background())
@@ -58,10 +96,10 @@ func startSession(t *testing.T, sessionID any, lastEventIDHeader string) (cancel
 	return cancel, rec, done
 }
 
-func readUntil(rec *httptest.ResponseRecorder, substr string, timeout time.Duration) bool {
+func readUntil(rec *safeRecorder, substr string, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if strings.Contains(rec.Body.String(), substr) {
+		if strings.Contains(rec.BodyString(), substr) {
 			return true
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -88,10 +126,10 @@ func TestBroadcastAndReceive(t *testing.T) {
 
 	// Wait until the event appears in the body
 	if !readUntil(rec, "event: greeting", 2*time.Second) {
-		t.Fatalf("did not see event line; body=%q", rec.Body.String())
+		t.Fatalf("did not see event line; body=%q", rec.BodyString())
 	}
-	if !strings.Contains(rec.Body.String(), "data: {\"msg\":\"hello\"}") {
-		t.Fatalf("did not see data line; body=%q", rec.Body.String())
+	if !strings.Contains(rec.BodyString(), "data: {\"msg\":\"hello\"}") {
+		t.Fatalf("did not see data line; body=%q", rec.BodyString())
 	}
 
 	// Validate SSE headers
@@ -132,10 +170,10 @@ func TestResumeWithLastEventID(t *testing.T) {
 		<-done2
 	}()
 	if !readUntil(rec2, "data: {\"n\":2}", 2*time.Second) {
-		t.Fatalf("did not see replayed event with n=2; body=%q", rec2.Body.String())
+		t.Fatalf("did not see replayed event with n=2; body=%q", rec2.BodyString())
 	}
-	if strings.Contains(rec2.Body.String(), "data: {\"n\":1}") {
-		t.Fatalf("unexpected replay of n=1; body=%q", rec2.Body.String())
+	if strings.Contains(rec2.BodyString(), "data: {\"n\":1}") {
+		t.Fatalf("unexpected replay of n=1; body=%q", rec2.BodyString())
 	}
 }
 
@@ -144,7 +182,7 @@ func TestShutdownBySessionId(t *testing.T) {
 	cancel, _, done := startSession(t, "to-close", "")
 	// Give it time to initialize
 	time.Sleep(50 * time.Millisecond)
-	ShutdownBySessionId("to-close")
+	ShutdownBySessionID("to-close")
 	select {
 	case <-done:
 		// ok

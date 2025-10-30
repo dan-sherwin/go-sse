@@ -14,7 +14,7 @@ This package is designed to be simple to integrate, concurrency-safe, and easy t
 
 
 ## Requirements
-- Go 1.24+
+- Go 1.25.3+ (addresses standard library security advisories GO-2025-4007, GO-2025-4008, GO-2025-4010, GO-2025-4011, GO-2025-4013)
 - Gin (github.com/gin-gonic/gin)
 
 
@@ -118,10 +118,10 @@ All functions are in the `sse` package.
 - SendSessionsEvent(eventType string, data any, sessionIDs []any) error
   - Sends an event to multiple specific sessions.
 
-- ShutdownBySessionId(sessionID any)
+- ShutdownBySessionID(sessionID any)
   - Gracefully closes the SSE stream for a single session.
 
-- ShutdownBySessionIds(sessionIDs []any)
+- ShutdownBySessionIDs(sessionIDs []any)
   - Gracefully closes the SSE streams for a set of sessions.
 
 Event format:
